@@ -1,0 +1,3 @@
+Just copy the audiere.dll file to the Debug/final directory before running the program, and make sure that the .h file is being included and the .lib file is being linked.
+
+-- cej9

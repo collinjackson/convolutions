@@ -1,0 +1,48 @@
+// This is the current Techdemo of the Irrlicht Engine (c) 2003 by N.Gebhardt.
+// This file is not documentated.
+
+#ifndef __C_Castle_SCENARIO_H_INCLUDED__
+#define __C_Castle_SCENARIO_H_INCLUDED__
+
+#include "IScenario.h"
+
+using namespace irr;
+
+class CMaze : public IScenario
+{
+
+enum maze_dir
+{
+	WEST = 0,
+	SOUTH,
+	EAST,
+	NORTH
+};
+
+enum maze_data_struct
+{
+	BACK = 0, //backtrack
+	SOL, //solution
+	BORD, //border
+	WALL
+};
+
+public:
+
+	CMaze();
+
+	~CMaze();
+
+	int MAX_X, MAX_Y;
+	float xScale, yScale, zScale;
+	float sparseness;
+
+
+	void draw();
+
+
+	bool isClosed(bool *cellWalls);
+	void makeWall(scene::ISceneNode *wall);
+};
+
+#endif

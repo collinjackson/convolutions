@@ -1,0 +1,48 @@
+/ChangeLog/1.1/Wed Apr 28 12:38:08 2004/-kb/
+/FAQ/1.1/Wed Apr 28 12:38:07 2004/-kb/
+/INDEX/1.1/Wed Apr 28 12:38:07 2004/-kb/
+/Make_vms.com/1.1/Wed Apr 28 12:38:08 2004/-kb/
+/Makefile/1.1/Wed Apr 28 12:38:09 2004/-kb/
+/Makefile.in/1.1/Wed Apr 28 12:38:09 2004/-kb/
+/Makefile.riscos/1.1/Wed Apr 28 12:38:09 2004/-kb/
+/README/1.1/Wed Apr 28 12:38:08 2004/-kb/
+/adler32.c/1.1/Wed Apr 28 12:38:08 2004/-kb/
+/algorithm.txt/1.1/Wed Apr 28 12:38:09 2004//
+D/amiga////
+/compress.c/1.1/Wed Apr 28 12:38:09 2004/-kb/
+/configure/1.1/Wed Apr 28 12:38:09 2004/-kb/
+D/contrib////
+/crc32.c/1.1/Wed Apr 28 12:38:09 2004/-kb/
+/deflate.c/1.1/Wed Apr 28 12:38:09 2004/-kb/
+/deflate.h/1.1/Wed Apr 28 12:38:08 2004/-kb/
+/descrip.mms/1.1/Wed Apr 28 12:38:09 2004/-kb/
+/example/1.1/Wed Apr 28 12:38:07 2004/-kb/
+/example.c/1.1/Wed Apr 28 12:38:09 2004/-kb/
+/gzio.c/1.1/Wed Apr 28 12:38:09 2004/-kb/
+/infblock.c/1.1/Wed Apr 28 12:38:08 2004/-kb/
+/infblock.h/1.1/Wed Apr 28 12:38:09 2004/-kb/
+/infcodes.c/1.1/Wed Apr 28 12:38:08 2004/-kb/
+/infcodes.h/1.1/Wed Apr 28 12:38:08 2004/-kb/
+/inffast.c/1.1/Wed Apr 28 12:38:09 2004/-kb/
+/inffast.h/1.1/Wed Apr 28 12:38:08 2004/-kb/
+/inffixed.h/1.1/Wed Apr 28 12:38:08 2004/-kb/
+/inflate.c/1.1/Wed Apr 28 12:38:09 2004/-kb/
+/inftrees.c/1.1/Wed Apr 28 12:38:09 2004/-kb/
+/inftrees.h/1.1/Wed Apr 28 12:38:09 2004/-kb/
+/infutil.c/1.1/Wed Apr 28 12:38:08 2004/-kb/
+/infutil.h/1.1/Wed Apr 28 12:38:07 2004/-kb/
+/maketree.c/1.1/Wed Apr 28 12:38:08 2004/-kb/
+/minigzip/1.1/Wed Apr 28 12:38:08 2004/-kb/
+/minigzip.c/1.1/Wed Apr 28 12:38:09 2004/-kb/
+D/msdos////
+D/nt////
+D/os2////
+/trees.c/1.1/Wed Apr 28 12:38:08 2004/-kb/
+/trees.h/1.1/Wed Apr 28 12:38:08 2004/-kb/
+/uncompr.c/1.1/Wed Apr 28 12:38:08 2004/-kb/
+/zconf.h/1.1/Wed Apr 28 12:38:09 2004/-kb/
+/zlib.3/1.1/Wed Apr 28 12:38:08 2004/-kb/
+/zlib.h/1.1/Wed Apr 28 12:38:09 2004/-kb/
+/zlib.html/1.1/Wed Apr 28 12:38:08 2004//
+/zutil.c/1.1/Wed Apr 28 12:38:08 2004/-kb/
+/zutil.h/1.1/Wed Apr 28 12:38:09 2004/-kb/

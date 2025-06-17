@@ -1,0 +1,809 @@
+// This is the current Techdemo of the Irrlicht Engine (c) 2003 by N.Gebhardt.
+// This file is not documentated.
+
+#include "IScenario.h"
+#include "CCityScenario.h"
+#include "CCastleScenario.h"
+#include "stereogram.h"
+
+
+#include <stdio.h>
+#include <matrix4.h> 
+#include "CStartupMenu.h"
+#include "CMainMenu.h"
+#include "ISkyBoxFaderSceneNode.h"
+
+IScenario::IScenario(CStartupMenu* startupMenu)
+	: fullscreen(startupMenu->gameFullscreen), 
+	  shadows(startupMenu->shadows), 
+	  music(startupMenu->music), 
+	  additive(startupMenu->additive), 
+	  operativeModelFilename(startupMenu->getModelFilename(startupMenu->currentOperativeModel)),
+	  operativeTextureFilename(startupMenu->getTextureFilename(startupMenu->currentOperativeModel)),
+	  currentScene(-2),
+	  operativeModel(0), 
+	  levelMesh(0), levelNode(0), skyboxFader(0), timeForThisScene(0),
+	  mapSelector(0), metaSelector(0), device(0),
+	  firstCollider(0), modelCollider(0), introAnimationTime(2000),
+	  jumping(0), isRunning(false)
+{
+	keyMap[0].Action = EKA_MOVE_FORWARD;
+	keyMap[0].KeyCode = KEY_UP;
+	keyMap[1].Action = EKA_MOVE_FORWARD;
+	keyMap[1].KeyCode = KEY_KEY_W;
+	        
+	keyMap[2].Action = EKA_MOVE_BACKWARD;
+	keyMap[2].KeyCode = KEY_DOWN;
+	keyMap[3].Action = EKA_MOVE_BACKWARD;
+	keyMap[3].KeyCode = KEY_KEY_S;
+	        
+	keyMap[4].Action = EKA_STRAFE_LEFT;
+	keyMap[4].KeyCode = KEY_LEFT;
+	keyMap[5].Action = EKA_STRAFE_LEFT;
+	keyMap[5].KeyCode = KEY_KEY_A;
+	        
+	keyMap[6].Action = EKA_STRAFE_RIGHT;
+	keyMap[6].KeyCode = KEY_RIGHT;
+	keyMap[7].Action = EKA_STRAFE_RIGHT;
+	keyMap[7].KeyCode = KEY_KEY_D;
+}
+
+IScenario* IScenario::createScenario(scenario_t which, CStartupMenu* startupMenu)
+{ 
+	switch(which)
+	{
+	case SCENARIO_CITY: return new CCityScenario(startupMenu);
+	case SCENARIO_EMPTY: return new IScenario(startupMenu);
+	case SCENARIO_CASTLE: return new CCastleScenario(startupMenu);
+	default: return 0;
+	}
+}
+
+wchar_t* IScenario::getScenarioName(IScenario::scenario_t which)
+{
+	switch(which)
+	{
+	case IScenario::SCENARIO_CITY: return L"City";
+	case IScenario::SCENARIO_EMPTY: return L"Empty";
+	case IScenario::SCENARIO_CASTLE: return L"Castle";
+	default: return L"";
+	}
+}
+
+IScenario::~IScenario()
+{
+	if (mapSelector)
+		mapSelector->drop();
+
+	if (metaSelector)
+		metaSelector->drop();
+}
+
+
+void IScenario::makeHRotX(irr::core::matrix4 m, double thetaX ) {
+	f32 cosT = cosf((f32)thetaX);
+	f32 sinT = sinf((f32)thetaX);
+
+	m.M[0] = 1.0; m.M[1] =  0.0; m.M[2] =   0.0; m.M[3] = 0.0;
+	m.M[4] = 0.0; m.M[5] = cosT; m.M[6] = -sinT; m.M[7] = 0.0;
+	m.M[8] = 0.0; m.M[9] = sinT; m.M[10] =  cosT; m.M[11] = 0.0;
+	m.M[12] = 0.0; m.M[13] =  0.0; m.M[14] =   0.0; m.M[15] = 1.0;
+}
+
+void IScenario::makeHRotY(irr::core::matrix4 *m, double thetaX ) {
+	f32 cosT = cosf((f32)thetaX);
+	f32 sinT = sinf((f32)thetaX);
+
+	m->M[0] = cosT; m->M[1] =  0.0; m->M[2] =   sinT; m->M[3] = 0.0;
+	m->M[4] = 0.0; m->M[5] = 1; m->M[6] = 0.0; m->M[7] = 0.0;
+	m->M[8] = -sinT; m->M[9] = 0; m->M[10] =  cosT; m->M[11] = 0.0;
+	m->M[12] = 0.0; m->M[13] =  0.0; m->M[14] =   0.0; m->M[15] = 1.0;
+}
+
+
+
+bool IScenario::run()
+{
+	device = createDevice(video::EDT_OPENGL,
+		core::dimension2d<s32>(640, 480), 16, fullscreen, shadows, this);
+
+	scene::ISceneManager *sm = device->getSceneManager();
+	
+	device->getFileSystem()->addZipFileArchive("irrlicht.dat");
+	device->getFileSystem()->addZipFileArchive("media\\irrlicht.dat");
+	
+	device->getFileSystem()->addZipFileArchive("demo_map.pk3");
+	device->getFileSystem()->addZipFileArchive("media\\demo_map.pk3");
+	device->getFileSystem()->addZipFileArchive("media\\mine.pk3");
+	
+	video::IVideoDriver* driver = device->getVideoDriver();
+	scene::ISceneManager* smgr = device->getSceneManager();
+	gui::IGUIEnvironment* guienv = device->getGUIEnvironment();
+
+	device->setWindowCaption(L"Construct");
+	
+	stereogram = driver->createStereogram();
+
+	// load music
+	if (music) startAudiere();
+
+	// initialize main menu
+	mainMenu = new CMainMenu(this);
+		
+	wchar_t tmp[255];
+
+	while(device->run() && driver)
+	{
+
+		if (device->isWindowActive())
+		{
+			// load next scene if necessary
+			u32 now = device->getTimer()->getTime();
+			if (now - sceneStartTime > timeForThisScene && timeForThisScene!=-1)
+				switchToNextScene();
+
+			// Something random Jim added... locks the overhead view, but does so poorly	
+			if(device->getSceneManager()->getActiveCamera()==freeOverCamera && freeOverCamera){	
+				core::vector3df nPosition = this->freeOverCamera->getPosition();
+				nPosition.Y = freeOverRadius;
+				this->freeOverCamera->setPosition(nPosition);
+			}
+		
+			createParticleImpacts();
+			doPhysicsStuff();
+
+			// draw everything
+
+			driver->beginScene(true, true, backColor);
+
+			smgr->drawAll();
+			stereogram->draw();
+			guienv->drawAll();
+
+			driver->endScene();
+
+			// write statistics
+
+			swprintf(tmp, 255, L"%s fps:%d polys:%d", driver->getName(),
+				driver->getFPS(), driver->getPrimitiveCountDrawn());
+
+			statusText->setText(tmp);
+		}
+	}
+
+	device->drop();
+
+	return mainMenu->getReturnToStartupMenu();
+}
+
+
+bool IScenario::OnEvent(SEvent event)
+{
+	if (!device)
+		return false;
+
+	
+	// Toggle running animation; also pass input on to camera
+	if (event.EventType == EET_KEY_INPUT_EVENT)
+	{
+		switch(event.KeyInput.Key)
+		{
+		case KEY_KEY_W: case KEY_KEY_A: case KEY_KEY_S: case KEY_KEY_D:
+		case KEY_UP: case KEY_DOWN: case KEY_LEFT: case KEY_RIGHT: 
+			if(event.KeyInput.PressedDown && !isRunning)
+			{
+				isRunning = true;
+				operativeModel->setMD2Animation(scene::EMAT_RUN);
+			} 
+			else 
+			if(!event.KeyInput.PressedDown && isRunning)
+			{
+				isRunning = false;
+				operativeModel->setMD2Animation(scene::EMAT_STAND);
+			}
+			break;
+		}
+	}
+
+	scene::ICameraSceneNode* camera = device->getSceneManager()->getActiveCamera();		
+	
+	if (event.EventType == EET_KEY_INPUT_EVENT &&
+		event.KeyInput.Key == KEY_ESCAPE &&
+		event.KeyInput.PressedDown == false)
+	{
+		mainMenu->show();
+/*		// user wants to quit.
+		if (currentScene < 3)
+			timeForThisScene = 0;
+		else
+			device->closeDevice();
+*/
+	}
+	else
+	if (event.EventType == EET_MOUSE_INPUT_EVENT &&
+		event.MouseInput.Event == EMIE_LMOUSE_LEFT_UP)
+	{
+		shoot();
+	}
+	else
+	if (event.EventType == EET_KEY_INPUT_EVENT &&
+		event.KeyInput.Key == KEY_SPACE &&
+		event.KeyInput.PressedDown == true &&
+		modelCollider && !modelCollider->isFalling()) 
+	{
+		operativeModel->setMD2Animation(scene::EMAT_JUMP);
+		jumping = 20;
+	}
+	else
+	if ((event.EventType == EET_KEY_INPUT_EVENT &&
+		event.KeyInput.Key == KEY_F1 &&
+		event.KeyInput.PressedDown == false) )
+	{
+		irr::core::matrix4 m = camera->getProjectionMatrix();
+		m.setRotationDegrees(irr::core::vector3df(1,1,1));
+		core::vector3df nPosition = camera->getPosition();
+		//makeHRotY(&m, 3.14);
+		//nPosition.X = 0;
+		nPosition.Y = 0;
+		nPosition.Z = 0;
+		//camera->setTarget(nPosition);
+		camera->setMouseInputReceiverEnabled(true);
+		camera->setKeyInputReceiverEnabled(true);
+		//CCameraFPSSceneNode) camera->setRotateSpeed(savedSpeed);
+		//camera->setAspectRatio(camera->getAspectRatio() / 2);
+		
+	}
+	else if ((event.EventType == EET_KEY_INPUT_EVENT &&
+		event.KeyInput.Key == KEY_F2 &&
+		event.KeyInput.PressedDown == false) )
+	{
+
+		//allow only one successive call!
+		//irr::core::matrix4 m = camera->getProjectionMatrix();
+		//m.setRotationDegrees(irr::core::vector3df(1,1,1));
+		core::vector3df nPosition = camera->getPosition();
+		//makeHRotY(&m, 3.14);
+		//nPosition.X = 0;
+		core::vector3df n;
+		n.X = nPosition.X + 10;
+		n.Y = nPosition.Y + 40;
+		n.Z = nPosition.Z;
+		
+		nPosition.X = nPosition.X - 10;
+		nPosition.Y = nPosition.Y - 40;
+		camera->setPosition(nPosition);
+
+// commented out for chase test 		camera->setTarget(n);		
+		
+		//camera->setKeyInputReceiverEnabled(false);
+		camera->setMouseInputReceiverEnabled(false);
+	}
+	else if ((event.EventType == EET_KEY_INPUT_EVENT &&
+		event.KeyInput.Key == KEY_F3 &&
+		event.KeyInput.PressedDown == false) )
+	{
+		operativeModel->setVisible(true);
+		device->getSceneManager()->setActiveCamera(this->chaseCamera);
+	}
+	else if ((event.EventType == EET_KEY_INPUT_EVENT &&
+		event.KeyInput.Key == KEY_F4 &&
+		event.KeyInput.PressedDown == false) )
+	{
+		operativeModel->setVisible(true);
+		device->getSceneManager()->setActiveCamera(this->overCamera);
+		core::vector3df nPosition = this->overCamera->getPosition();
+		camera = this->overCamera;
+
+		// core::matrix4 m = camera->getProjectionMatrix();
+		// camera->setTarget(core::vector3df(2000,2000000,2000));
+		// camera->setTarget(operativeModel->getPosition());
+
+		nPosition = operativeModel->getPosition();
+		this->overCamera->setMouseInputReceiverEnabled(false);
+
+	}
+	else if ((event.EventType == EET_KEY_INPUT_EVENT &&
+		event.KeyInput.Key == KEY_F5 &&
+		event.KeyInput.PressedDown == false) )
+	{
+		operativeModel->setVisible(false);
+		device->getSceneManager()->setActiveCamera(this->firstCamera);	
+		camera->setMouseInputReceiverEnabled(true);
+		this->firstCamera->setPosition(operativeModel->getPosition());
+	}
+	else if ((event.EventType == EET_KEY_INPUT_EVENT &&
+		event.KeyInput.Key == KEY_F6 &&
+		event.KeyInput.PressedDown == false) )
+	{
+		operativeModel->setVisible(true);
+		device->getSceneManager()->setActiveCamera(this->freeOverCamera);
+		core::vector3df nPosition = this->freeOverCamera->getPosition();
+		camera = this->freeOverCamera;
+
+		core::matrix4 m = camera->getProjectionMatrix();
+		camera->setTarget(core::vector3df(2000,2000000,2000));
+		
+		nPosition = operativeModel->getPosition();
+		
+		freeOverRadius = 500;
+		camera->setPosition(nPosition);
+		this->overCamera->setMouseInputReceiverEnabled(false);
+		
+	}
+	else if ((event.EventType == EET_KEY_INPUT_EVENT &&
+		event.KeyInput.Key == KEY_KEY_O))
+	{
+		freeOverRadius += 30;
+	}
+	else if ((event.EventType == EET_KEY_INPUT_EVENT &&
+		event.KeyInput.Key == KEY_KEY_L) )
+	{
+		freeOverRadius -= 30;
+		freeOverRadius = freeOverRadius < 10 ? 10 : freeOverRadius;
+	}
+	else
+#ifdef AVERYLONGIDENTIFIERTHATJIMTERRYISNOTVERYLIKELYTOUSE
+		// _DEBUG   -- I'm not sure what this is, but it's causing compilation problems and is annoying
+	
+	if (event.EventType == irr::EET_MOUSE_INPUT_EVENT &&
+		event.MouseInput.Event == EMIE_LMOUSE_LEFT_UP)
+	{
+		char tmp[255];
+		core::vector3df pos = device->getSceneManager()->getActiveCamera()->getAbsolutePosition();
+		sprintf(tmp, "points.push_back(core::vector3df(%ff, %ff, %ff)); // %d\n", pos.X, pos.Y, pos.Z,
+			sceneStartTime - device->getTimer()->getTime());
+		OutputDebugString(tmp);
+		return true;
+	}
+	else
+#endif
+	if (device->getSceneManager()->getActiveCamera())
+	{
+		device->getSceneManager()->getActiveCamera()->OnEvent(event);
+		return true;
+	}
+	
+	return false;
+}
+
+
+void IScenario::switchToNextScene()
+{
+	currentScene++;
+	if (currentScene > 3)
+		currentScene = 1;
+
+	scene::ISceneManager* sm = device->getSceneManager();
+	scene::ISceneNodeAnimator* sa = 0;
+
+	// Can use this to remove cameras
+	// if (camera)
+	// {
+	// 	sm->setActiveCamera(0);
+	// 	camera->remove();
+	// }
+
+	switch(currentScene)
+	{
+	case -1: // loading screen
+		timeForThisScene = 0;
+		createLoadingScreen();
+		break;
+
+	case 0: // load scene
+		timeForThisScene = 0;
+		loadSceneData();
+		//currentScene += 2;
+		break;
+
+	case 1: // construct appears
+		{
+			timeForThisScene = introAnimationTime;
+			
+			// Fade in the model
+			operativeModel->setVisible(true);
+			inOutFader->fadeIn(1000);
+
+			// Add various camera views
+
+			chaseCamera = sm->addCameraSceneNodeChase(0, 100.0f, 300.0f, -1, keyMap, 8);
+			chaseCamera->setUncle(operativeModel);			
+			chaseCamera->setPosition(core::vector3df(0,50,0));
+			
+			firstCamera = sm->addCameraSceneNodeFPS(0, 100.0f, 300.0f, -1, keyMap, 8);
+			firstCamera->setUncle(operativeModel);
+			firstCamera->setPosition(core::vector3df(25,50,0));
+
+			overCamera = sm->addCameraSceneNodeChaseOver(0, 100.0f, 300.0f, -1, keyMap, 8);
+			overCamera->setUncle(operativeModel);
+
+			freeOverCamera = sm->addCameraSceneNodeFPS(0, 100.0f, 300.0f, -1, keyMap, 8);
+			freeOverCamera->setUncle(operativeModel);
+
+			sm->setActiveCamera(chaseCamera);
+
+			// Start the intro fly-in sequence
+			scene::ISceneNodeAnimator* anim = sm->createFlyStraightAnimator(introAnimStartPos, introAnimEndPos, introAnimationTime, false);
+			operativeModel->addAnimator(anim);
+			anim->drop();
+		}
+		break;
+		
+	case 2: // main game
+		{
+
+			timeForThisScene = -1;
+
+			// Intro sequence is finished, so it's safe to add lighting, physics and sky
+			//operativeModel->setMaterialFlag(video::EMF_LIGHTING, true);
+			skyboxFader->fadeIn((u32)3000);
+			core::vector3df translation = core::vector3df(0,0,0);
+			core::vector3df  gravity = core::vector3df(0,-.5,0);
+			core::aabbox3d<f32> box = operativeModel->getBoundingBox();
+			core::vector3df radius = box.MaxEdge - box.getCenter();
+			radius.X += 20;
+			radius.Y += 22;
+			radius.Z += 20;  //tweak for animating
+			modelCollider = sm->createCollisionResponseAnimator(metaSelector, operativeModel, radius, gravity, 100.0f, translation, 0.0005f);
+			operativeModel->addAnimator(modelCollider);
+			firstCollider = sm->createCollisionResponseAnimator(metaSelector, this->firstCamera, radius, gravity, 100.0f,translation, 0.0005f);
+			radius.X = radius.Y = radius.Z = 50;
+			gravity = core::vector3df(0,0,0);			
+			scene::ISceneNodeAnimatorCollisionResponse* collider2 = 
+				sm->createCollisionResponseAnimator(metaSelector, chaseCamera, radius, gravity, 100.0f,translation, 0.0005f);
+			scene::ISceneNodeAnimatorCollisionResponse* collider3 = 
+				sm->createCollisionResponseAnimator(metaSelector, overCamera, radius, gravity, 100.0f,translation, 0.0005f);
+			scene::ISceneNodeAnimatorCollisionResponse* collider4 = 
+				sm->createCollisionResponseAnimator(metaSelector, freeOverCamera, radius, gravity, 100.0f,translation, 0.0005f);
+			this->chaseCamera->addAnimator(collider2);		
+			this->firstCamera->addAnimator(firstCollider);		
+			this->overCamera->addAnimator(collider3);
+			this->freeOverCamera->addAnimator(collider4);
+			collider2->drop();
+		}
+
+	// Could potentially add further scenes...
+	}
+
+	sceneStartTime = device->getTimer()->getTime();
+
+	// if we've got a new created camera, we call OnPostRender to let all animators
+	// set the right position of the camera, otherwise the camera would
+	// be at a wrong position in the first frame
+	if (device->getSceneManager()->getActiveCamera())
+		device->getSceneManager()->getActiveCamera()->OnPostRender(sceneStartTime);
+}
+
+
+void IScenario::loadSceneData()
+{
+	// the concrete scene implementation is responsible for initializing levelMesh
+	// from a quake map or whatever
+
+	video::IVideoDriver* driver = device->getVideoDriver();
+	scene::ISceneManager* sm = device->getSceneManager();
+
+	if (levelMesh)
+	{
+		levelNode = sm->addOctTreeSceneNode(levelMesh->getMesh(0));
+		if (levelNode)
+		{
+			levelNode->setPosition(core::vector3df(-1300,-70,-1249));
+			levelNode->setVisible(true);
+			
+			// create map triangle selector
+			mapSelector = sm->createOctTreeTriangleSelector(levelMesh->getMesh(0),
+				levelNode, 128);
+
+			// set additive blending if wanted
+			if (additive)
+				levelNode->setMaterialType(video::EMT_LIGHTMAP_ADD);
+		}
+	}
+
+	skyboxFader = sm->addSkyBoxFaderSceneNode();
+	skyboxFader->setColor(video::SColor(255,255,255,255));
+	skyboxFader->fadeOut((u32)0);		// Initially the skybox is set to white
+
+	scene::IAnimatedMesh* operativeMesh = 0;
+	operativeMesh = sm->getMesh(operativeModelFilename);
+	operativeModel = sm->addAnimatedMeshSceneNode(operativeMesh);
+		if (operativeModel)
+		{
+			operativeModel->setPosition(introAnimEndPos);
+			operativeModel->setScale(core::vector3df(2,2,2));
+//			operativeModel->setRotation(core::vector3df(0,180,0));
+			operativeModel->setMD2Animation(scene::EMAT_STAND);
+			operativeModel->setAnimationSpeed(20);
+			operativeModel->setMaterialTexture(0, device->getVideoDriver()->getTexture(operativeTextureFilename));
+			operativeModel->setMaterialFlag(video::EMF_LIGHTING, false);
+			operativeModel->addShadowVolumeSceneNode();
+		}
+
+	// create meta triangle selector with all triangles selectors in it.
+	metaSelector = sm->createMetaTriangleSelector();
+	metaSelector->addTriangleSelector(mapSelector);
+
+	// load bullet impact particle system
+
+	smokeParticleSystem = sm->addParticleSystemSceneNode(false, 0, -1, 
+		core::vector3df(100,120,600), core::vector3df(0,0,0),
+		core::vector3df(2,2,2));
+
+	smokeParticleSystem->setParticleSize(core::dimension2d<f32>(20.0f, 10.0f));
+
+	scene::IParticleAffector* paf = smokeParticleSystem->createFadeOutParticleAffector();
+	smokeParticleSystem->addAffector(paf);
+	paf->drop();
+
+	smokeParticleSystem->setMaterialFlag(video::EMF_LIGHTING, false);
+	smokeParticleSystem->setMaterialTexture(0, driver->getTexture("media\\fireball.bmp"));
+	smokeParticleSystem->setMaterialType(video::EMT_TRANSPARENT_VERTEX_ALPHA);
+
+	// set background color
+
+	backColor.set(255,255,255,255);
+}
+
+
+
+void IScenario::createLoadingScreen()
+{
+	core::dimension2d<int> size = device->getVideoDriver()->getScreenSize();
+	device->getCursorControl()->setVisible(false);
+	backColor.set(255,255,255,255);
+
+	// create in fader
+
+	inOutFader = device->getGUIEnvironment()->addInOutFader();
+	inOutFader->setColor(backColor);
+
+	// irrlicht logo
+
+	//gui::IGUIImage* img = device->getGUIEnvironment()->addImage(core::rect<int>(10,10,98,41));
+	//img->setImage(device->getVideoDriver()->getTexture("media\\irrlichtlogoaligned.jpg"));
+
+	// loading text
+
+	const int lwidth = 170;
+	const int lheight = 15;
+
+	core::rect<int> pos(10, size.Height-lheight-10, 10+lwidth, size.Height-10);
+	
+	device->getGUIEnvironment()->addImage(pos);
+	statusText = device->getGUIEnvironment()->addStaticText(L"Loading...",	pos, true);
+	statusText->setOverrideColor(video::SColor(255,205,200,200));
+
+	// load bigger font
+
+	device->getGUIEnvironment()->getSkin()->setFont(
+		device->getGUIEnvironment()->getFont("media/fonthaettenschweiler.bmp"));
+
+	// set new font color
+
+	device->getGUIEnvironment()->getSkin()->setColor(gui::EGDC_BUTTON_TEXT,
+		video::SColor(255,100,100,100));
+}
+
+
+
+void IScenario::shoot()
+{
+	scene::ISceneManager* sm = device->getSceneManager();
+	scene::ICameraSceneNode* camera = sm->getActiveCamera();
+
+	if (!camera || !mapSelector)
+		return;
+
+	SParticleImpact imp; 
+	imp.when = 0;
+
+	// get line of camera
+	core::vector3df start, end;
+	
+	if(camera->getUncle())
+		start = camera->getPosition() + ((camera->getUncle())->getPosition() - camera->getPosition());
+	else
+		start = camera->getPosition();
+
+	if(camera->getUncle()){
+		end = (camera->getTarget() - start) + ((camera->getUncle())->getPosition() - camera->getPosition());
+	}
+	else
+		end = (camera->getTarget() - start);
+	
+	
+	end.normalize();
+	end = start + (end * camera->getFarValue());
+
+	core::triangle3df triangle;
+
+	core::line3d<f32> line(start, end);
+
+	// get intersection point with map
+
+	if (sm->getSceneCollisionManager()->getCollisionPoint(line, mapSelector, end, triangle))
+	{
+		// collides with wall
+		core::vector3df out = triangle.getNormal();
+		out.setLength(0.03f);
+
+		imp.when = 1;
+		imp.outVector = out;
+		imp.pos = end;
+	}
+	else
+	{
+		// doesnt collide with wall
+		end = (camera->getTarget() - start);
+		end.normalize();
+		end = start + (end * 1000);
+	}
+
+	// create fire ball
+	scene::ISceneNode* node = 0;
+	node = sm->addBillboardSceneNode(0, core::dimension2d<f32>(25,25), start);
+
+	node->setMaterialFlag(video::EMF_LIGHTING, false);
+	node->setMaterialTexture(0, device->getVideoDriver()->getTexture("media\\particle.bmp"));
+	node->setMaterialType(video::EMT_TRANSPARENT_ADD_COLOR);
+		
+	f32 length = (f32)(end - start).getLength();
+	const f32 speed = 0.3f;
+	u32 time = (u32)(length / speed);
+
+	scene::ISceneNodeAnimator* anim = 0;
+
+	// set flight line
+
+	anim = sm->createFlyStraightAnimator(start, end, time);
+	node->addAnimator(anim);	
+	anim->drop();
+
+	anim = sm->createDeleteAnimator(time);
+	node->addAnimator(anim);
+	anim->drop();
+
+	if (imp.when)
+	{
+		// create impact note
+		imp.when = device->getTimer()->getTime() + (time - 100);
+		Impacts.push_back(imp);
+	}
+
+	// play sound
+	if (ballSound)
+		ballSound->play();
+}
+
+void IScenario::createParticleImpacts()
+{
+	u32 now = device->getTimer()->getTime();
+	scene::ISceneManager* sm = device->getSceneManager();
+
+	for (s32 i=0; i<(s32)Impacts.size(); ++i)
+		if (now > Impacts[i].when)
+		{
+			// create smoke particle system
+			scene::IParticleSystemSceneNode* pas = 0;
+
+			pas = sm->addParticleSystemSceneNode(false, 0, -1, Impacts[i].pos);
+
+			pas->setParticleSize(core::dimension2d<f32>(10.0f, 10.0f));
+
+			scene::IParticleEmitter* em = pas->createBoxEmitter(
+				core::aabbox3d<f32>(-5,-5,-5,5,5,5),
+				Impacts[i].outVector, 20,40, video::SColor(0,255,255,255),video::SColor(0,255,255,255),
+				1200,1600, 20);
+
+			pas->setEmitter(em);
+			em->drop();
+
+			scene::IParticleAffector* paf = smokeParticleSystem->createFadeOutParticleAffector();
+			pas->addAffector(paf);
+			paf->drop();
+
+			pas->setMaterialFlag(video::EMF_LIGHTING, false);
+			pas->setMaterialTexture(0, device->getVideoDriver()->getTexture("media/smoke.bmp"));
+			pas->setMaterialType(video::EMT_TRANSPARENT_VERTEX_ALPHA);
+
+			scene::ISceneNodeAnimator* anim = sm->createDeleteAnimator(2000);
+			pas->addAnimator(anim);
+			anim->drop();
+
+			// delete entry
+			Impacts.erase(i);
+			i--;			
+
+			// play impact sound
+			if (impactSound)
+				impactSound->play();
+		}
+}
+
+void IScenario::doPhysicsStuff()
+{
+	if(jumping > 0 && operativeModel && modelCollider){
+		//this won't work with FPS mode.  i should include a method with the camera that points to the movement controlller (camera for FPS, operativeModel for all others)
+		core::vector3df v = operativeModel->getPosition();
+		v.Y += jumping;
+		operativeModel->setPosition(v);
+		jumping -= modelCollider->getGravity().Y;
+		jumping -= 0.5f;
+	}
+	
+
+	scene::ICameraSceneNode* camera = device->getSceneManager()->getActiveCamera();		
+
+
+	/*
+	if(camera==overCamera){
+		camera->View.M[5] = 0;camera->View.M[6] = -1;
+		camera->View.M[9] = 1;camera->View.M[10] = 0;
+	}*/
+
+	
+	if(camera && operativeModel){
+		core::vector3df modPos((camera->getPosition() + camera->getTarget()) / 2);
+		
+
+
+		if(modelCollider && mainMenu){
+			modelCollider->setGravity(core::vector3df(0,(-1 * ((float) mainMenu->getGravity()) ) / 20000.00f, 0));	
+		}
+		
+
+
+		float posMult = 200;
+		modPos.Y = camera->getPosition().Y +  ((camera->getTarget().Y - camera->getPosition().Y)  * posMult);
+		modPos.Z = camera->getPosition().Z +  ((camera->getTarget().Z - camera->getPosition().Z)  * posMult);
+		modPos.X = camera->getPosition().X +  ((camera->getTarget().X - camera->getPosition().X)  * posMult);
+		//operativeModel->setPosition(modPos);
+		core::vector3df modRot ;
+		//modRot = camera->getRotation();
+		
+		;
+		//camera->setTarget(operativeModel->getPosition());
+		//camera->setTarget(core::vector3df(0,0,0));
+		//modRot.X = 90;
+		modRot.Y = (camera->getRotation()).Y + 270;
+		//modRot.Z = 90;
+		
+		
+		operativeModel->setRotation(modRot);
+		
+		// printf("x = %lf, y = %lf, z = %lf", camera->getRotationDegrees().X, camera->getRotationDegrees().Y, camera->getRotationDegrees().Z);
+
+	}
+}
+
+void IScenario::startAudiere()
+{
+	audiereDevice = OpenDevice();
+	if (!audiereDevice) 
+		return;
+
+	stream = OpenSound(audiereDevice.get(), "IrrlichtTheme.mp3", true);
+	if (!stream) 
+	{
+		stream = OpenSound(audiereDevice.get(), "media\\IrrlichtTheme.mp3", true);
+		if (!stream)
+			return;
+	}
+
+	ballSound = OpenSound(audiereDevice.get(), "ball.wav", false);
+	if (!ballSound) 
+	{
+		ballSound = OpenSound(audiereDevice.get(), "media\\ball.wav", false);
+	}
+
+	impactSound = OpenSound(audiereDevice.get(), "impact.wav", false);
+	if (!impactSound) 
+	{
+		impactSound = OpenSound(audiereDevice.get(), "media\\impact.wav", false);
+	}
+		
+	stream->setRepeat(true);
+	stream->setVolume(0.5f); // 50% volume
+	stream->play();
+}

@@ -1,0 +1,208 @@
+// This is the current Techdemo of the Irrlicht Engine (c) 2003 by N.Gebhardt.
+// This file is not documentated.
+
+#include "CMaze.h"
+#include "stereogram.h"
+
+
+
+#include <stdio.h>
+#include <vector>
+#include <stack>
+#include <deque>
+#include <string>
+#include <iostream>
+#include <time.h>
+
+#include <matrix4.h> 
+#include "CStartupMenu.h"
+#include "CMainMenu.h"
+#include "ISkyBoxFaderSceneNode.h"
+
+CMaze::CMaze() : IScenario(0), model1(0), skyboxNode(0)
+{
+	MAX_X = 20; MAX_Y =  10;  sparseness = 20;  xScale = 10; yScale = 10; zScale = 10;
+}
+
+CMaze::~CMaze(){
+
+}
+
+
+void CMaze::draw(){
+
+
+	//maze part
+	
+	
+	
+	//these will be defines once I abstract into my own class . . . 
+	//int MAX_X = 20;
+	//int MAX_Y = 10;
+
+	video::IVideoDriver* driver = device->getVideoDriver();
+	scene::ISceneManager* sm = device->getSceneManager();
+
+	core::vector2di stack[] = new vector2di[MAX_X * MAX_Y];
+	int stack_index = 0;
+
+	bool cells[20][10][4][4];
+	int i, j, k, newX, newY;
+	
+
+	
+	//init maze
+	
+	int total =  MAX_X * MAX_Y;
+	int visited = 1;
+
+	for(i=0; i<MAX_X; i++){
+		for(j=0; j<MAX_Y; j++){
+			for(k=0;k<4;k++){
+				cells[i][j][BORD][NORTH] = j==MAX_Y-1 ? true : false;
+				cells[i][j][BORD][SOUTH] = j==0 ? true : false;
+				cells[i][j][BORD][WEST]  = i==0 ? true : false;
+				cells[i][j][BORD][WEST]  = i==MAX_X -1 ? true : false;
+
+				cells[i][j][SOL][k] = false;
+
+				cells[i][j][WALL][k] = true;
+				cells[i][j][BACK][k] = false;
+
+			}
+		}
+	}
+
+	core::vector2di cur;
+
+	
+
+	srand(time(0));
+	cur.X = rand() % MAX_X;
+	cur.Y = rand() % MAX_Y;
+	
+	
+	int whichSide;
+	
+
+	int test[4];
+
+
+
+	while(visited < total){
+		newX = -1;
+		printf("Hi: %d, %d\n", cur.X, cur.Y);
+		
+		for(k=0;k<4;k++){
+			whichSide = k==0 ? rand() % 4 : (whichSide + 1) % 4;	
+			switch(whichSide){
+			case WEST :
+				if(cur.X - 1 > -1 && isClosed(cells[cur.X-1][cur.Y][WALL])){
+					cells[cur.X][cur.Y][WALL][WEST] = false;
+					cells[cur.X-1][cur.Y][WALL][EAST] = false;
+					newX = cur.X-1; newY=cur.Y;
+				}
+				
+				break;
+			case SOUTH :
+				if(cur.Y -1 > -1 && isClosed(cells[cur.X][cur.Y-1][WALL])){
+					cells[cur.X][cur.Y][WALL][SOUTH] = false;
+					cells[cur.X][cur.Y-1][WALL][NORTH] = false;
+					newX = cur.X; newY=cur.Y-1;
+				}
+				
+				break;
+			case EAST :
+				if(cur.X + 1 < MAX_X && isClosed(cells[cur.X+1][cur.Y][WALL])){
+					cells[cur.X][cur.Y][WALL][EAST] = false;
+					cells[cur.X+1][cur.Y][WALL][WEST] = false;
+					newX = cur.X+1; newY=cur.Y;
+				}
+				
+				break;
+			case NORTH :
+				if(cur.Y + 1 < MAX_Y && isClosed(cells[cur.X][cur.Y+1][WALL])){
+					cells[cur.X][cur.Y][WALL][NORTH] = false;
+					cells[cur.X][cur.Y+1][WALL][SOUTH] = false;
+					newX = cur.X; newY=cur.Y+1;
+				}
+				
+				break;
+			default: printf("Something very bad happened.\n"); break;
+			}
+			if(newX != -1) break;
+		}
+		
+		test[0] = isClosed(cells[newX][newY][WALL]) ? 1 : 0;
+		printf("newX = %d; isClosed = %d", newX, test[0]);
+
+		if(newX != -1){
+			stack[stack_index] = core::vector2di(cur.X, cur.Y);
+			stack_index++;
+			cur.X = newX; cur.Y = newY;
+			visited++;
+		} else{
+			stack_index--;
+			printf("Stack index is now : %d\n, visted = %d", stack_index, visited);
+			cur = stack[stack_index];
+		}
+
+	}
+
+
+	cells[0][rand()%MAX_Y][WALL][WEST] = false;
+	cells[MAX_X-1][rand()%MAX_Y][WALL][EAST] = false;
+
+
+
+	//randomly take out some walls
+	for(i=0; i<MAX_X; i++){
+		for(j=0; j<MAX_Y; j++){
+			if(i!=0&& j!=0&& i<MAX_X-1 &&j<MAX_Y-1){
+				for(k=0;k<4;k++){
+					if(rand() % 10 > 7)	cells[i][j][WALL][k] = false;
+				}
+			}
+		}
+	}
+
+	scene::ISceneNode* wall;
+	for(i=0; i<MAX_X; i++){
+		for(j=0; j<MAX_Y; j++){
+		
+			if(cells[i][j][WALL][WEST]){
+				wall = sm->addTestSceneNode (10.0f, 0, -1, core::vector3df(i * 100 - 50, 0, j * 100 - 50), core::vector3df(0, 90, 0), core::vector3df(10.0f, 10.0f, 1.0f));
+				makeWall(wall, driver);
+			}
+			if(cells[i][j][WALL][NORTH]){
+				wall = sm->addTestSceneNode (10.0f, 0, -1, core::vector3df(i * 100, 0, j * 100), core::vector3df(0, 0, 0), core::vector3df(10.0f, 10.0f, 1.0f));
+				makeWall(wall, driver);
+			}
+			if(cells[i][j][WALL][SOUTH]){
+				wall = sm->addTestSceneNode (10.0f, 0, -1, core::vector3df(i * 100, 0, j * 100 - 100), core::vector3df(0, 0, 0), core::vector3df(10.0f, 10.0f, 1.0f));
+				makeWall(wall, driver);
+				
+			}
+			if(cells[i][j][WALL][EAST]){
+				wall = sm->addTestSceneNode (10.0f, 0, -1, core::vector3df(i * 100 + 50, 0, j * 100 - 50), core::vector3df(0, 90, 0), core::vector3df(10.0f, 10.0f, 1.0f));
+				makeWall(wall, driver);
+
+			}
+		
+			
+		}
+	}
+	free(stack);
+
+}
+
+
+bool CMaze::isClosed(bool *cellWalls){
+	return (cellWalls[WEST] && cellWalls[SOUTH] && cellWalls[EAST] && cellWalls[NORTH]);
+}
+
+void  CMaze::makeWall(scene::ISceneNode wall){
+	wall->setMaterialTexture(0, device->getVideoDriver()->getTexture("media\\wall.jpg"));
+}
+
+
